@@ -19,7 +19,8 @@ class Bard:
         '''
         self.proxies = proxies
         self.timeout = timeout
-        headers = {
+        self.session = requests.Session()
+        self.headers = {
             "Host": "bard.google.com",
             "X-Same-Domain": "1",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
@@ -27,13 +28,12 @@ class Bard:
             "Origin": "https://bard.google.com",
             "Referer": "https://bard.google.com/",
         }
-        self._reqid = int("".join(random.choices(string.digits, k=4)))
+        self._reqid = random.randint(1000, 9999)
         self.conversation_id = ""
         self.response_id = ""
         self.choice_id = ""
-        self.session = requests.Session()
-        self.session.headers = headers
-        self.session.cookies.set("__Secure-1PSID", os.environ["_BARD_API_KEY"])
+        self.session.headers.update(self.headers)
+        self.session.cookies.set("__Secure-1PSID", os.environ.get("_BARD_API_KEY"))
         self.SNlM0e = self._get_snim0e()
 
     def _get_snim0e(self):
@@ -57,29 +57,36 @@ class Bard:
             "f.req": json.dumps([None, json.dumps(input_text_struct)]),
             "at": self.SNlM0e,
         }
-        resp = self.session.post(
-            "https://bard.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
-            params=params,
-            data=data,
-            timeout=self.timeout,
-            proxies=self.proxies
-        )
-
-        resp_dict = json.loads(resp.content.splitlines()[3])[0][2]
-        if resp_dict is None:
-            return {"content": f"Response Error: {resp.content}."}
-        parsed_answer = json.loads(resp_dict)
-        bard_answer = {
-            "content": parsed_answer[0][0],
-            "conversation_id": parsed_answer[1][0],
-            "response_id": parsed_answer[1][1],
-            "factualityQueries": parsed_answer[3],
-            "textQuery": parsed_answer[2][0] if parsed_answer[2] is not None else "",
-            "choices": [{"id": i[0], "content": i[1]} for i in parsed_answer[4]],
-        }
+        try:
+            resp = self.session.post(
+                "https://bard.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+                params=params,
+                data=data,
+                timeout=self.timeout,
+                proxies=self.proxies
+            )
+            resp.raise_for_status()
+            resp_dict = json.loads(resp.content.splitlines()[3])[0][2]
+            if resp_dict is None:
+                return {"content": f"Response Error: {resp.content}."}
+            parsed_answer = json.loads(resp_dict)
+            bard_answer = {
+                "content": parsed_answer[0][0],
+                "conversation_id": parsed_answer[1][0],
+                "response_id": parsed_answer[1][1],
+                "factualityQueries": parsed_answer[3],
+                "textQuery": parsed_answer[2][0] if parsed_answer[2] is not None else "", "choices": [{"id": i[0], "content": i[1]} for i in parsed_answer[4]],
+}
         self.conversation_id = bard_answer["conversation_id"]
         self.response_id = bard_answer["response_id"]
         self.choice_id = bard_answer["choices"][0]["id"]
         self._reqid += 100000
-
         return bard_answer
+    except requests.exceptions.RequestException as e:
+        return {"content": f"Request Error: {str(e)}."}
+    except (ValueError, IndexError, KeyError) as e:
+        return {"content": f"Parsing Error: {str(e)}."}
+    except Exception as e:
+        return {"content": f"Unknown Error: {str(e)}."}
+
+               
